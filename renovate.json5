@@ -20,6 +20,7 @@
         "com.diffplug.spotless:spotless-maven-plugin",
         "org.apache.maven.plugins:maven-surefire-plugin",
         "org.codehaus.mojo:build-helper-maven-plugin",
+        "org.sonatype.central:central-publishing-maven-plugin",
         "org.apache.maven.plugins:maven-gpg-plugin",
         "org.apache.maven.plugins:maven-source-plugin",
         "org.apache.maven.plugins:maven-compiler-plugin",
@@ -32,7 +33,8 @@
         "org.junit.jupiter:",
         "org.slf4j:",
         "com.fasterxml.jackson",
-        "jakarta.annotation"
+        "jakarta.annotation",
+        "org.apache.maven.plugins"
       ],
       "automerge": true,
       "schedule": "monthly"
