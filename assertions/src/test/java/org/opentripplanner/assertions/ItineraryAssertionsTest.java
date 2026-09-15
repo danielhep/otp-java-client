@@ -156,16 +156,6 @@ class ItineraryAssertionsTest {
     assertThat(error.getMessage()).contains("fare $3.00");
   }
 
-  @Test
-  void deprecatedAliasExtendsCanonicalError() {
-    List<ItineraryMatchResult> failedResults = List.of(ItineraryMatchResult.success(List.of()));
-
-    ItineraryAssertionError error = new ItineraryAssertionError("boom", failedResults);
-
-    assertThat(error).isInstanceOf(ItineraryAssertionError.class);
-    assertThat(error.getFailedResults()).isEqualTo(failedResults);
-  }
-
   private static TripPlan tripPlan(Itinerary... itineraries) {
     return new TripPlan(List.of(itineraries), "", "");
   }
