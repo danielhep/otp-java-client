@@ -201,7 +201,7 @@ class ItineraryAssertionsTest {
     assertDoesNotThrow(
         () ->
             new ItineraryAssertions()
-                    .withStrictTransitMatching()
+                .withStrictTransitMatching()
                 .hasLeg()
                 .withRouteShortName("10")
                 .hasLeg()
@@ -214,7 +214,7 @@ class ItineraryAssertionsTest {
             ItineraryAssertionError.class,
             () ->
                 new ItineraryAssertions()
-                        .withStrictTransitMatching()
+                    .withStrictTransitMatching()
                     .hasLeg()
                     .withRouteShortName("10")
                     .interlinedWithPreviousLeg()
