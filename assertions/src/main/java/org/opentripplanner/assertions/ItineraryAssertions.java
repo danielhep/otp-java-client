@@ -71,7 +71,7 @@ public class ItineraryAssertions {
 
   public ItineraryAssertions withFarePrice(float price, String riderCategoryId, String mediumId) {
     addCurrentLegCriterion(
-        "fare $%.2f".formatted(price),
+        "fare %.2f (rider category %s, medium %s)".formatted(price, riderCategoryId, mediumId),
         leg ->
             leg.fareProducts().stream()
                 .filter(fp -> fp.product().riderCategory().isPresent())
@@ -154,7 +154,14 @@ public class ItineraryAssertions {
     }
 
     String fullError = header + criteriaSection + failuresSection;
-    throw new ItineraryAssertionError(fullError, failedResults);
+    throw new ItineraryAssertionError(
+        fullError,
+        failedResults,
+        distinctLegCriteria.stream()
+            .map(criteria -> criteria.stream().map(LegCriterion::message).toList())
+            .toList(),
+        strictTransitMatching,
+        tripPlan);
   }
 
   /**
