@@ -130,9 +130,8 @@ class ItineraryAssertionsTest {
   }
 
   @Test
-  void withFarePriceHandlesPositiveAndNegativeMatches() {
-    List<FareProductUse> fares =
-        List.of(fare("orca:regular", "orca:cash"), fare(2.75f, "orca:regular", "orca:cash"));
+  void withFarePriceMatchesFareWithSpecifiedPriceRiderCategoryAndMedium() {
+    List<FareProductUse> fares = List.of(fare(2.75f, "orca:regular", "orca:cash"));
     TripPlan plan =
         tripPlan(itinerary(transitLeg("E", "E Line", LegMode.BUS, Duration.ofMinutes(12), fares)));
 
@@ -143,6 +142,13 @@ class ItineraryAssertionsTest {
                 .withRouteShortName("E")
                 .withFarePrice(2.75f, "orca:regular", "orca:cash")
                 .assertMatches(plan));
+  }
+
+  @Test
+  void withFarePriceReportsMismatchedFare() {
+    List<FareProductUse> fares = List.of(fare(2.75f, "orca:regular", "orca:cash"));
+    TripPlan plan =
+        tripPlan(itinerary(transitLeg("E", "E Line", LegMode.BUS, Duration.ofMinutes(12), fares)));
 
     ItineraryAssertionError error =
         assertThrows(
@@ -153,7 +159,15 @@ class ItineraryAssertionsTest {
                     .withRouteShortName("E")
                     .withFarePrice(3.00f, "orca:regular", "orca:cash")
                     .assertMatches(plan));
-    assertThat(error.getMessage()).contains("fare $3.00");
+
+    String expectedFareCriterion = "fare 3.00 (rider category orca:regular, medium orca:cash)";
+    assertThat(error.getExpectedLegs())
+        .containsExactly(List.of("route '[E]'", expectedFareCriterion));
+    assertThat(error.getFailedResults()).hasSize(1);
+    assertThat(error.getFailedResults().get(0).getPartialMatches()).hasSize(1);
+    LegMatchingState partialMatch = error.getFailedResults().get(0).getPartialMatches().get(0);
+    assertThat(partialMatch.getMatchingCriteria()).isEqualTo("route '[E]'");
+    assertThat(partialMatch.getMissingCriteria()).isEqualTo(expectedFareCriterion);
   }
 
   private static TripPlan tripPlan(Itinerary... itineraries) {
