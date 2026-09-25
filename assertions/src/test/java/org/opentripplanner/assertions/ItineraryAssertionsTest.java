@@ -305,7 +305,7 @@ class ItineraryAssertionsTest {
                     .withFarePrice(3.00f, "orca:regular", "orca:cash")
                     .assertMatches(plan));
 
-    String expectedFareCriterion = "fare 3.00 (rider category orca:regular, medium orca:cash)";
+    String expectedFareCriterion = "fare $3.00 (rider category orca:regular, medium orca:cash)";
     assertThat(error.getExpectedLegs())
         .containsExactly(List.of("route '[E]'", expectedFareCriterion));
     assertThat(error.getFailedResults()).hasSize(1);
