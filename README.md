@@ -71,64 +71,6 @@ OtpApiClient client = OtpApiClient.builder()
 
 For more examples take a look at [`IntegrationTest.java`](https://github.com/opentripplanner/otp-java-client/blob/main/client/src/test/java/org/opentripplanner/IntegrationTest.java).
 
-### Evaluating itinerary expectations (3.x)
-
-The 3.x assertions module separates leg conditions, itinerary conditions, and
-asserting the evaluated result. This replaces the old `ItineraryAssertions`
-fluent interface without compatibility aliases.
-
-```java
-var expected = new ItineraryExpectation()
-    .withTransitLegMatching(TransitLegMatching.EXACT_ORDERED)
-    .withMaxDuration(Duration.ofHours(1))
-    .withLeg(new TransitLegExpectation()
-        .withMode("BUS")
-        .withRouteShortName("2")
-        .withInterlinedWithPreviousLeg(false));
-
-PlanMatchResult result = expected.evaluate(plan);
-// Inspect or report both successful and failed results before failing the test.
-result.assertMatches();
-```
-
-All conditions in one `ItineraryExpectation` apply to the same itinerary.
-By default, at least one itinerary must match. To require every itinerary to
-match, use `ItineraryExpectation.allItinerariesMatching(expected).evaluate(plan)`
-and call `assertMatches()` on the result. This also requires a nonempty plan
-and preserves diagnostics for every itinerary.
-`withMaxDuration` on a leg limits that leg; on an itinerary it limits elapsed
-time from first departure to final arrival, including walking and waiting.
-Limits are inclusive. An empty itinerary expectation matches any returned
-itinerary; it does not match an empty response. A leg expectation needs at least
-one condition and is copied when added to an itinerary expectation.
-
-All matching modes use distinct transit legs and ignore non-transit legs:
-
-| Mode | Order | Extra transit legs |
-| --- | --- | --- |
-| `EXACT_ORDERED` | Required | Prohibited |
-| `ORDERED_SUBSEQUENCE` | Required | Allowed anywhere |
-| `UNORDERED_SUBSET` (default) | Unconstrained | Allowed |
-
-With `EXACT_ORDERED`, no leg expectations means no transit legs are allowed.
-Unordered matching finds a valid assignment even when expectations overlap.
-`withInterlinedWithPreviousLeg(boolean)` is the only interlining method: omitted
-is unconstrained, true requires interlining, false prohibits it. It describes
-continuation from the actual preceding transit leg, including an extra leg when
-subset matching allows one.
-
-Compose `PlanExpectation` values through `PlanExpectation.anyOf(...)`,
-`PlanExpectation.allOf(...)`, and
-`PlanExpectation.itineraryCountBetween(minimum, maximum)`. Use
-`ItineraryExpectation.noItineraryMatching(expected)` to require no itinerary
-to match an expectation. Separate itinerary expectations may
-match different itineraries. All children are evaluated and retained in
-`PlanMatchResult.children()`, even when one alternative already passed.
-`itineraryResults()` retains every itinerary's result in response order.
-A mismatch is data; only `assertMatches()` throws. Invalid definitions still
-throw during configuration/evaluation. `ItineraryAssertionError.result()` gives
-the full evaluation, including mode, criteria, response, and child diagnostics.
-
 ### Releasing
 
 ```sh

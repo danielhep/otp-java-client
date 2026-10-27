@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.IntStream;
 import org.opentripplanner.client.model.Itinerary;
 import org.opentripplanner.client.model.TripPlan;
 
@@ -68,11 +69,14 @@ public final class ItineraryExpectation implements PlanExpectation {
     return this;
   }
 
-  /** Evalutes every itinerary in the plan to check for matching results */
+  /** Evaluates every itinerary in the plan to check for matching results. */
   @Override
   public PlanMatchResult evaluate(TripPlan plan) {
     Objects.requireNonNull(plan);
-    var results = plan.itineraries().stream().map(this::evaluateItinerary).toList();
+    var results =
+        IntStream.range(0, plan.itineraries().size())
+            .mapToObj(i -> evaluateItinerary(i, plan.itineraries().get(i)))
+            .toList();
     return new PlanMatchResult(
         "At least one itinerary must match",
         results.stream().anyMatch(ItineraryMatchResult::isSuccess),
@@ -85,13 +89,13 @@ public final class ItineraryExpectation implements PlanExpectation {
   }
 
   /** Evaluates an individual itinerary for a match */
-  private ItineraryMatchResult evaluateItinerary(Itinerary itinerary) {
-    var result = new TransitLegMatcher(expectedLegs, itinerary.transitLegs()).match(matchingMode);
+  private ItineraryMatchResult evaluateItinerary(int index, Itinerary itinerary) {
+    var result = new TransitLegMatcher(expectedLegs, index, itinerary).match(matchingMode);
     if (maxDuration == null || elapsed(itinerary).compareTo(maxDuration) <= 0) return result;
     var errors = new ArrayList<>(result.errors());
     errors.add("Itinerary duration " + elapsed(itinerary) + " exceeds " + maxDuration);
     return new ItineraryMatchResult(
-        result.successfulMatches(), result.partialMatches(), result.extraMatches(), errors);
+        index, result.itinerary(), result.legResults(), result.extraMatches(), errors);
   }
 
   private static Duration elapsed(Itinerary itinerary) {

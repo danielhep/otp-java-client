@@ -11,6 +11,7 @@ var expected = new ItineraryExpectation()
                 .withInterlinedWithPreviousLeg(false));
 
 PlanMatchResult result = expected.evaluate(plan);
+String report = MatchResultFormatter.format(result);
 // Inspect or report both successful and failed results before failing the test.
 result.assertMatches();
 ```
@@ -59,4 +60,66 @@ By default, only one itinerary in the trip plan needs to match in order for the 
 ItineraryExpectations can be composed as like any PlanExpectation. See the [PlanExpectation Composition](asdf) section for more details.
 
 ### TransitLegExpectations: Define the expectations for a leg
-This class is used to set up your expectations for a transit leg. Create a new instance and then define your criteria by using the builder methods. 
+This class is used to set up your expectations for a transit leg. Create a new instance and then define your criteria by using the builder methods.
+
+### Inspecting Results
+Calling `evaluate` returns a PlanMatchResult, which provides a snapshot of the results of evaluating the expectation against a trip plan. Inside this object you can find all the details of the expected legs, the matched actual legs, partial matches, etc. from the itinerary matching. For structured data reporting, you can dig into the results like this:
+
+```java
+for (ItineraryMatchResult itinerary : result.itineraryResults()) {
+    for (LegRequirementResult requirement : itinerary.legResults()) {
+        var status = requirement.status();
+        Optional<LegMatchResult> assigned = requirement.matchedLeg();
+        var partialMatches = requirement.candidates().stream()
+                .filter(LegMatchResult::isPartialMatch)
+                .toList();
+        for (LegMatchResult candidate : requirement.candidates()) {
+            List<String> satisfied = candidate.matchingCriteria();
+            List<String> failed = candidate.missingCriteria();
+        }
+    }
+}
+```
+
+The result hierarchy is `PlanMatchResult` > `ItineraryMatchResult` >
+`LegRequirementResult` > `LegMatchResult`.
+Use `PlanMatchResult.matches()` to check whether the entire expectation succeeded.
+Its `itineraryResults()` contains the evaluated itineraries and their outcomes.
+
+Each itinerary's `legResults()` contains one result per expected leg, with its
+criteria, status, the assigned match (if it exists), and the results of matching the criteria against all the legs (candidates). You can inspect each candidate with isFullMatch and isPartialMatch. 
+
+Use `MatchResultFormatter.format(result)` to turn the structured results into
+text for logging or display:
+
+```java
+String report = MatchResultFormatter.format(result);
+System.out.println(report);
+```
+
+For the expectation at the top of this page, suppose the plan contains two
+direct bus itineraries from Downtown to Airport: route 3 taking 25 minutes and
+route 2 taking 30 minutes. Neither leg is interlined. The formatter produces:
+
+```text
+At least one itinerary must match [matched] (EXACT_ORDERED)
+  Leg 1: mode BUS, route '[2]', interlined with previous leg = false
+  Maximum itinerary duration: PT1H
+  Itinerary 1 failed
+    Requirement 1: Transit leg at position 1 does not match criteria
+      Criteria: mode BUS, route '[2]', interlined with previous leg = false
+      Candidate transit leg 1: TRANSIT - Route: 3, From: Downtown, To: Airport
+        Matched: mode BUS, interlined with previous leg = false
+        Missing: route '[2]'
+    Actual leg 1: TRANSIT - Route: 3, From: Downtown, To: Airport
+  Itinerary 2 matched
+    Requirement 1: matched transit leg 1
+      Criteria: mode BUS, route '[2]', interlined with previous leg = false
+      Candidate transit leg 1: TRANSIT - Route: 2, From: Downtown, To: Airport
+        Matched: mode BUS, route '[2]', interlined with previous leg = false
+    Actual leg 1: TRANSIT - Route: 2, From: Downtown, To: Airport
+```
+
+The first itinerary has a partial leg match: its mode and interlining satisfy
+the criteria, but its route does not. The overall result matches because the
+second itinerary satisfies every condition.

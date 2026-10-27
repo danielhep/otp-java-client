@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -270,10 +271,13 @@ class ItineraryExpectationTest {
 
     assertThat(error.result().itineraryResults()).hasSize(1);
     ItineraryMatchResult result = error.result().itineraryResults().get(0);
-    assertThat(result.errors()).isNotEmpty();
-    assertThat(result.partialMatches()).hasSize(1);
-    assertThat(result.partialMatches().get(0).getMatchingCriteria()).contains("route '[10]'");
-    assertThat(result.partialMatches().get(0).getMissingCriteria()).contains("mode TRAM");
+    assertThat(result.legResults()).hasSize(1);
+    var requirement = result.legResults().getFirst();
+    assertThat(requirement.status()).isEqualTo(LegRequirementResult.Status.CRITERIA_MISMATCH);
+    assertThat(requirement.candidates()).hasSize(1);
+    assertThat(requirement.candidates().getFirst().matchingCriteria())
+        .containsExactly("route '[10]'");
+    assertThat(requirement.candidates().getFirst().missingCriteria()).containsExactly("mode TRAM");
   }
 
   @Test
@@ -315,11 +319,11 @@ class ItineraryExpectationTest {
     assertThat(error.result().expectedLegs())
         .containsExactly(List.of("route '[E]'", expectedFareCriterion));
     assertThat(error.result().itineraryResults()).hasSize(1);
-    assertThat(error.result().itineraryResults().get(0).partialMatches()).hasSize(1);
-    LegMatchingState partialMatch =
-        error.result().itineraryResults().get(0).partialMatches().get(0);
-    assertThat(partialMatch.getMatchingCriteria()).isEqualTo("route '[E]'");
-    assertThat(partialMatch.getMissingCriteria()).isEqualTo(expectedFareCriterion);
+    var requirement = error.result().itineraryResults().getFirst().legResults().getFirst();
+    assertThat(requirement.candidates()).hasSize(1);
+    LegMatchResult partialMatch = requirement.candidates().getFirst();
+    assertThat(partialMatch.matchingCriteria()).containsExactly("route '[E]'");
+    assertThat(partialMatch.missingCriteria()).containsExactly(expectedFareCriterion);
   }
 
   @Test
@@ -345,26 +349,125 @@ class ItineraryExpectationTest {
             itinerary(
                 transitLeg("10", "Route 10", LegMode.BUS, Duration.ofMinutes(20), List.of()),
                 transitLeg("20", "Route 20", LegMode.BUS, Duration.ofMinutes(20), List.of())));
-    assertDoesNotThrow(
+    var result =
+        new ItineraryExpectation()
+            .withLeg(new TransitLegExpectation().withMode("BUS"))
+            .withLeg(new TransitLegExpectation().withRouteShortName("10"))
+            .evaluate(plan);
+    result.assertMatches();
+    var requirements = result.itineraryResults().getFirst().legResults();
+    assertThat(requirements.get(0).matchedLeg().orElseThrow().actualLegIndex()).isEqualTo(1);
+    assertThat(requirements.get(0).candidates().getFirst().actualLegIndex()).isEqualTo(0);
+    assertThat(requirements.get(1).matchedLeg().orElseThrow().actualLegIndex()).isEqualTo(0);
+    assertThat(MatchResultFormatter.format(result))
+        .contains("Requirement 1: matched transit leg 2");
+  }
+
+  @ParameterizedTest
+  @CsvSource({"ORDERED_SUBSEQUENCE", "UNORDERED_SUBSET"})
+  void successfulSubsetRequirementsRetainFullPartialAndNonmatchingCandidates(
+      TransitLegMatching mode) {
+    var plan =
+        tripPlan(
+            itinerary(
+                transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of()),
+                transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(15), List.of()),
+                transitLeg("10", "10", LegMode.TRAM, Duration.ofMinutes(10), List.of()),
+                transitLeg("30", "30", LegMode.TRAM, Duration.ofMinutes(10), List.of())));
+    var result =
+        new ItineraryExpectation()
+            .withTransitLegMatching(mode)
+            .withLeg(new TransitLegExpectation().withRouteShortName("10").withMode("BUS"))
+            .evaluate(plan);
+
+    assertThat(result.matches()).isTrue();
+    var requirement = result.itineraryResults().getFirst().legResults().getFirst();
+    var candidates = requirement.candidates();
+    assertThat(candidates).hasSize(4);
+    assertThat(requirement.matchedLeg()).hasValue(candidates.getFirst());
+    assertThat(candidates.get(0).isFullMatch()).isTrue();
+    assertThat(candidates.get(1).isFullMatch()).isTrue();
+    assertThat(candidates.get(2).isPartialMatch()).isTrue();
+    assertThat(candidates.get(2).matchingCriteria()).containsExactly("route '[10]'");
+    assertThat(candidates.get(2).missingCriteria()).containsExactly("mode BUS");
+    assertThat(candidates.get(3).isFullMatch()).isFalse();
+    assertThat(candidates.get(3).isPartialMatch()).isFalse();
+    String report = MatchResultFormatter.format(result);
+    assertThat(
+            report
+                .lines()
+                .filter(line -> line.stripLeading().startsWith("Candidate transit leg "))
+                .count())
+        .isEqualTo(4);
+    assertThat(report)
+        .contains(
+            "Candidate transit leg 3: TRANSIT - Route: 10, From: From 10, To: To 10\n"
+                + "        Matched: route '[10]'\n"
+                + "        Missing: mode BUS");
+  }
+
+  @Test
+  void requirementRejectsInconsistentAssignedMatches() {
+    var plan =
+        tripPlan(
+            itinerary(
+                transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of()),
+                transitLeg("10", "10", LegMode.TRAM, Duration.ofMinutes(10), List.of())));
+    var requirement =
+        new ItineraryExpectation()
+            .withLeg(new TransitLegExpectation().withRouteShortName("10").withMode("BUS"))
+            .evaluate(plan)
+            .itineraryResults()
+            .getFirst()
+            .legResults()
+            .getFirst();
+    var assigned = requirement.matchedLeg();
+    var partial = requirement.candidates().get(1);
+    var criteria = requirement.expectedCriteria();
+    var candidates = requirement.candidates();
+
+    assertThrows(
+        IllegalArgumentException.class,
         () ->
-            new ItineraryExpectation()
-                .withLeg(new TransitLegExpectation().withMode("BUS"))
-                .withLeg(new TransitLegExpectation().withRouteShortName("10"))
-                .evaluate(plan)
-                .assertMatches());
+            new LegRequirementResult(
+                0, criteria, LegRequirementResult.Status.MATCHED, Optional.empty(), candidates));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new LegRequirementResult(
+                0, criteria, LegRequirementResult.Status.CRITERIA_MISMATCH, assigned, candidates));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new LegRequirementResult(
+                0,
+                criteria,
+                LegRequirementResult.Status.MATCHED,
+                Optional.of(partial),
+                candidates));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new LegRequirementResult(
+                0, criteria, LegRequirementResult.Status.MATCHED, assigned, List.of(partial)));
   }
 
   @ParameterizedTest
   @CsvSource({
-    "EXACT_ORDERED,10:20,true",
-    "EXACT_ORDERED,20:10,false",
-    "EXACT_ORDERED,10:30:20,false",
-    "ORDERED_SUBSEQUENCE,30:10:30:20:30,true",
-    "ORDERED_SUBSEQUENCE,20:10,false",
-    "UNORDERED_SUBSET,20:30:10,true"
+    "EXACT_ORDERED,10:20,true,MATCHED:MATCHED,1",
+    "EXACT_ORDERED,20:10,false,CRITERIA_MISMATCH:CRITERIA_MISMATCH,1",
+    "EXACT_ORDERED,10:30:20,false,MATCHED:CRITERIA_MISMATCH,1",
+    "ORDERED_SUBSEQUENCE,30:10:30:20:30,true,MATCHED:MATCHED,5",
+    "ORDERED_SUBSEQUENCE,20:10,false,MATCHED:OUT_OF_ORDER,2",
+    "UNORDERED_SUBSET,20:30:10,true,MATCHED:MATCHED,3",
+    "UNORDERED_SUBSET,30,false,CRITERIA_MISMATCH:CRITERIA_MISMATCH,1"
   })
   void matchingModesHaveExplicitOrderAndCountSemantics(
-      TransitLegMatching mode, String routes, boolean matches) {
+      TransitLegMatching mode,
+      String routes,
+      boolean matches,
+      String statuses,
+      int candidatesPerRequirement) {
     var actual =
         java.util.Arrays.stream(routes.split(":"))
             .map(route -> transitLeg(route, route, LegMode.BUS, Duration.ofMinutes(10), List.of()))
@@ -376,21 +479,41 @@ class ItineraryExpectationTest {
             .withLeg(new TransitLegExpectation().withRouteShortName("20"))
             .evaluate(tripPlan(itinerary(actual)));
     assertThat(result.matches()).isEqualTo(matches);
+    assertThat(
+            result.itineraryResults().getFirst().legResults().stream()
+                .map(r -> r.status().name())
+                .toList())
+        .containsExactlyElementsIn(statuses.split(":"))
+        .inOrder();
+    result
+        .itineraryResults()
+        .getFirst()
+        .legResults()
+        .forEach(r -> assertThat(r.candidates()).hasSize(candidatesPerRequirement));
   }
 
   @ParameterizedTest
-  @org.junit.jupiter.params.provider.EnumSource(TransitLegMatching.class)
-  void aSingleActualLegCannotSatisfyTwoExpectedLegs(TransitLegMatching mode) {
+  @CsvSource({
+    "EXACT_ORDERED,MISSING_LEG",
+    "ORDERED_SUBSEQUENCE,ALREADY_ASSIGNED",
+    "UNORDERED_SUBSET,ALREADY_ASSIGNED"
+  })
+  void aSingleActualLegCannotSatisfyTwoExpectedLegs(
+      TransitLegMatching mode, LegRequirementResult.Status secondStatus) {
     var plan =
         tripPlan(itinerary(transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of())));
-    assertThat(
-            new ItineraryExpectation()
-                .withTransitLegMatching(mode)
-                .withLeg(new TransitLegExpectation().withRouteShortName("10"))
-                .withLeg(new TransitLegExpectation().withRouteShortName("10"))
-                .evaluate(plan)
-                .matches())
-        .isFalse();
+    var result =
+        new ItineraryExpectation()
+            .withTransitLegMatching(mode)
+            .withLeg(new TransitLegExpectation().withRouteShortName("10"))
+            .withLeg(new TransitLegExpectation().withRouteShortName("10"))
+            .evaluate(plan);
+    assertThat(result.matches()).isFalse();
+    var requirements = result.itineraryResults().getFirst().legResults();
+    assertThat(requirements.get(0).status()).isEqualTo(LegRequirementResult.Status.MATCHED);
+    assertThat(requirements.get(0).matchedLeg().orElseThrow().actualLegIndex()).isEqualTo(0);
+    assertThat(requirements.get(1).status()).isEqualTo(secondStatus);
+    assertThat(requirements.get(1).matchedLeg()).isEmpty();
   }
 
   @Test
@@ -420,7 +543,8 @@ class ItineraryExpectationTest {
                     .withInterlinedWithPreviousLeg(false))
             .evaluate(plan);
     assertThat(result.matches()).isFalse();
-    assertThat(result.describe()).contains("interlined with previous leg = false");
+    assertThat(MatchResultFormatter.format(result))
+        .contains("interlined with previous leg = false");
   }
 
   @Test
@@ -495,6 +619,104 @@ class ItineraryExpectationTest {
     assertThat(success.children()).hasSize(2);
     assertThat(PlanExpectation.allOf(route20, new ItineraryExpectation()).evaluate(plan).matches())
         .isFalse();
+  }
+
+  @Test
+  void reportHasSingleSpacedLegsAndIndentedExpectationTree() {
+    var plan =
+        tripPlan(
+            itinerary(
+                walkLeg(Duration.ofMinutes(5)),
+                transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of())));
+    var result =
+        PlanExpectation.anyOf(
+                PlanExpectation.allOf(
+                    new ItineraryExpectation()
+                        .withLeg(
+                            new TransitLegExpectation().withRouteShortName("10").withMode("BUS"))))
+            .evaluate(plan);
+
+    assertThat(MatchResultFormatter.format(result))
+        .isEqualTo(
+            """
+            Any expectation must match [matched]
+              All expectations must match [matched]
+                At least one itinerary must match [matched] (UNORDERED_SUBSET)
+                  Leg 1: route '[10]', mode BUS
+                  Itinerary 1 matched
+                    Requirement 1: matched transit leg 1
+                      Criteria: route '[10]', mode BUS
+                      Candidate transit leg 1: TRANSIT - Route: 10, From: From 10, To: To 10
+                        Matched: route '[10]', mode BUS
+                    Actual leg 1: WALK - From: Walk From, To: Walk To, Distance: 1000m
+                    Actual leg 2: TRANSIT - Route: 10, From: From 10, To: To 10""");
+  }
+
+  @Test
+  void duplicateRequirementExplainsAssignmentConflictWithoutMissingCriteria() {
+    var plan =
+        tripPlan(itinerary(transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of())));
+    var result =
+        new ItineraryExpectation()
+            .withLeg(new TransitLegExpectation().withRouteShortName("10"))
+            .withLeg(new TransitLegExpectation().withRouteShortName("10"))
+            .evaluate(plan);
+
+    var error = assertThrows(ItineraryAssertionError.class, result::assertMatches);
+    assertThat(error.getMessage())
+        .contains("Requirement 2: matching transit legs are already assigned");
+    assertThat(error.getMessage()).contains("Candidate transit leg 1: TRANSIT - Route: 10");
+    assertThat(error.getMessage()).doesNotContain("Missing:");
+    assertThat(error.getMessage()).doesNotContain("missing:");
+  }
+
+  @Test
+  void evaluationRetainsImmutableResultsAndOriginalItineraryAndCandidateContext() {
+    var legs =
+        new ArrayList<>(
+            List.of(
+                walkLeg(Duration.ofMinutes(5)),
+                transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of()),
+                transitLeg("20", "20", LegMode.BUS, Duration.ofMinutes(10), List.of())));
+    var itineraries =
+        new ArrayList<>(List.of(itinerary(), new Itinerary(legs, OptionalDouble.empty())));
+    var expectation =
+        new ItineraryExpectation()
+            .withLeg(new TransitLegExpectation().withRouteShortName("20").withMode("TRAM"));
+    var result = expectation.evaluate(new TripPlan(itineraries, "next", "previous"));
+    String report = MatchResultFormatter.format(result);
+
+    legs.clear();
+    itineraries.clear();
+    expectation.withLeg(new TransitLegExpectation().withRouteShortName("30"));
+
+    var itineraryResult = result.itineraryResults().get(1);
+    var requirement = itineraryResult.legResults().getFirst();
+    assertThat(requirement.matchedLeg()).isEmpty();
+    assertThat(requirement.candidates()).hasSize(2);
+    var candidate = requirement.candidates().get(1);
+    assertThat(MatchResultFormatter.format(result)).isEqualTo(report);
+    assertThat(result.plan().itineraries()).hasSize(2);
+    assertThat(result.plan().itineraries().get(1).legs()).hasSize(3);
+    assertThat(itineraryResult.itineraryIndex()).isEqualTo(1);
+    assertThat(itineraryResult.itinerary().legs()).hasSize(3);
+    assertThat(requirement.expectedLegIndex()).isEqualTo(0);
+    assertThat(requirement.expectedCriteria())
+        .containsExactly("route '[20]'", "mode TRAM")
+        .inOrder();
+    assertThat(candidate.actualLegIndex()).isEqualTo(1);
+    assertThat(candidate.leg().route().getShortName()).isEqualTo("20");
+    assertThat(requirement.candidates().getFirst().matchingCriteria()).isEmpty();
+    assertThat(requirement.candidates().getFirst().missingCriteria())
+        .containsExactly("route '[20]'", "mode TRAM")
+        .inOrder();
+    assertThrows(UnsupportedOperationException.class, () -> candidate.matchingCriteria().clear());
+    assertThrows(UnsupportedOperationException.class, () -> candidate.missingCriteria().clear());
+    assertThrows(UnsupportedOperationException.class, () -> requirement.candidates().clear());
+    assertThrows(UnsupportedOperationException.class, () -> itineraryResult.legResults().clear());
+    assertThrows(
+        UnsupportedOperationException.class, () -> itineraryResult.itinerary().legs().clear());
+    assertThrows(UnsupportedOperationException.class, () -> result.plan().itineraries().clear());
   }
 
   @ParameterizedTest

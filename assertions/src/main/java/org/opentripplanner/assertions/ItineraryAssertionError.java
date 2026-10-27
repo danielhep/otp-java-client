@@ -4,7 +4,7 @@ public final class ItineraryAssertionError extends AssertionError {
   private final PlanMatchResult result;
 
   public ItineraryAssertionError(PlanMatchResult result) {
-    super(result.describe());
+    super(MatchResultFormatter.format(result));
     this.result = result;
   }
 
