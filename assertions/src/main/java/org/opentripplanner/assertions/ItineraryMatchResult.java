@@ -16,18 +16,17 @@ public record ItineraryMatchResult(
     List<LegMatchingState> partialMatches,
     List<Leg> extraMatches,
     List<String> errors) {
-  public static ItineraryMatchResult success(List<LegMatchingState> successfulMatches) {
-    return new ItineraryMatchResult(successfulMatches, List.of(), List.of(), List.of());
+  public ItineraryMatchResult {
+    successfulMatches = List.copyOf(successfulMatches);
+    partialMatches = List.copyOf(partialMatches);
+    extraMatches = List.copyOf(extraMatches);
+    errors = List.copyOf(errors);
   }
 
   /**
    * @return Whether this result represents a successful match.
    */
   public boolean isSuccess() {
-    return !successfulMatches.isEmpty() && extraMatches.isEmpty() && partialMatches().isEmpty();
-  }
-
-  public List<LegMatchingState> getPartialMatches() {
-    return partialMatches();
+    return errors.isEmpty() && extraMatches.isEmpty() && partialMatches.isEmpty();
   }
 }
