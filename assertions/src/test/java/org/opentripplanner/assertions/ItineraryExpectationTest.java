@@ -721,15 +721,22 @@ class ItineraryExpectationTest {
 
   @ParameterizedTest
   @CsvSource({
-    "10,10,10,20,true",
-    "20,10,10,10,false",
-    "10,10,20,10,false",
-    "10,30,10,10,false",
-    "10,10,10,30,false",
-    "20,30,20,30,false"
+    "10,10,10,20,true,true,false",
+    "20,10,10,10,true,false,false",
+    "10,10,20,10,true,false,false",
+    "10,30,10,10,true,false,false",
+    "10,10,10,30,true,false,false",
+    "20,30,20,30,false,false,true",
+    "10,30,20,10,false,false,true"
   })
-  void allItinerariesMustSatisfyLegAndItineraryConditions(
-      String firstRoute, int firstMinutes, String secondRoute, int secondMinutes, boolean matches) {
+  void itineraryMatchingAppliesToLegAndItineraryConditions(
+      String firstRoute,
+      int firstMinutes,
+      String secondRoute,
+      int secondMinutes,
+      boolean anyMatches,
+      boolean allMatch,
+      boolean noneMatch) {
     var plan =
         tripPlan(
             itinerary(
@@ -751,23 +758,30 @@ class ItineraryExpectationTest {
             .withMaxDuration(Duration.ofMinutes(20))
             .withLeg(new TransitLegExpectation().withRouteShortName("10"));
 
-    assertThat(ItineraryExpectation.allItinerariesMatching(expected).evaluate(plan).matches())
-        .isEqualTo(matches);
+    assertThat(expected.withItineraryMatching(ItineraryMatching.ANY).evaluate(plan).matches())
+        .isEqualTo(anyMatches);
+    assertThat(expected.withItineraryMatching(ItineraryMatching.ALL).evaluate(plan).matches())
+        .isEqualTo(allMatch);
+    assertThat(expected.withItineraryMatching(ItineraryMatching.NONE).evaluate(plan).matches())
+        .isEqualTo(noneMatch);
   }
 
-  @Test
-  void allItinerariesMatchingRetainsDiagnosticsForSuccessfulAndFailedItineraries() {
+  @ParameterizedTest
+  @CsvSource({"ALL,Every itinerary must match", "NONE,No itinerary must match"})
+  void itineraryMatchingRetainsDiagnosticsForSuccessfulAndFailedItineraries(
+      ItineraryMatching mode, String description) {
     var plan =
         tripPlan(
             itinerary(transitLeg("10", "10", LegMode.BUS, Duration.ofMinutes(10), List.of())),
             itinerary(transitLeg("20", "20", LegMode.BUS, Duration.ofMinutes(30), List.of())));
     var expected =
         new ItineraryExpectation()
+            .withItineraryMatching(mode)
             .withTransitLegMatching(TransitLegMatching.EXACT_ORDERED)
             .withMaxDuration(Duration.ofMinutes(20))
             .withLeg(new TransitLegExpectation().withRouteShortName("10"));
 
-    var result = ItineraryExpectation.allItinerariesMatching(expected).evaluate(plan);
+    var result = expected.evaluate(plan);
     var error = assertThrows(ItineraryAssertionError.class, result::assertMatches);
 
     assertThat(error.result()).isSameInstanceAs(result);
@@ -777,7 +791,7 @@ class ItineraryExpectationTest {
     assertThat(result.itineraryResults()).hasSize(2);
     assertThat(result.itineraryResults().get(0).isSuccess()).isTrue();
     assertThat(result.itineraryResults().get(1).isSuccess()).isFalse();
-    assertThat(error.getMessage()).contains("Every itinerary must match [failed]");
+    assertThat(error.getMessage()).contains(description + " [failed]");
     assertThat(error.getMessage()).contains("Itinerary 1 matched");
     assertThat(error.getMessage()).contains("Itinerary 2 failed");
     assertThat(error.getMessage()).contains("route '[10]'");
@@ -789,12 +803,14 @@ class ItineraryExpectationTest {
     var empty = tripPlan();
     assertThat(new ItineraryExpectation().evaluate(empty).matches()).isFalse();
     assertThat(
-            ItineraryExpectation.allItinerariesMatching(new ItineraryExpectation())
+            new ItineraryExpectation()
+                .withItineraryMatching(ItineraryMatching.ALL)
                 .evaluate(empty)
                 .matches())
         .isFalse();
     assertThat(
-            ItineraryExpectation.noItineraryMatching(new ItineraryExpectation())
+            new ItineraryExpectation()
+                .withItineraryMatching(ItineraryMatching.NONE)
                 .evaluate(empty)
                 .matches())
         .isTrue();
@@ -803,7 +819,7 @@ class ItineraryExpectationTest {
     var noTransit =
         new ItineraryExpectation().withTransitLegMatching(TransitLegMatching.EXACT_ORDERED);
     assertThat(noTransit.evaluate(walking).matches()).isTrue();
-    assertThat(ItineraryExpectation.noItineraryMatching(noTransit).evaluate(walking).matches())
+    assertThat(noTransit.withItineraryMatching(ItineraryMatching.NONE).evaluate(walking).matches())
         .isFalse();
     assertThat(PlanExpectation.itineraryCountBetween(0, 0).evaluate(walking).matches()).isFalse();
   }

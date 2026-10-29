@@ -20,7 +20,7 @@ By default, at least one itinerary must match. To require every itinerary to
 satisfy the same expectation, use:
 
 ```java
-ItineraryExpectation.allItinerariesMatching(expected).evaluate(plan).assertMatches();
+expected.withItineraryMatching(ItineraryMatching.ALL).evaluate(plan).assertMatches();
 ```
 
 This fails for an empty plan and retains diagnostics for every itinerary.
@@ -54,7 +54,13 @@ You can customize how exact the leg expectations need to be matched against the 
 #### Evaluate against a real TripPlan
 Evaluate a real life OTP TripPlan object (returned by the OTP Client library) against your shiny new `ItineraryExpectation` by calling the `.evaluate(TripPlan)` method. It will return a PlanMatchResult which you can use to dig into the successes and failures. 
 
-By default, only one itinerary in the trip plan needs to match in order for the check to pass. But you can change that to an expectation that no itineraries will pass, or that every itinerary will pass by using the static functions noItineraryMatching and allItinerariesMatching.
+Use `withItineraryMatching(ItineraryMatching)` to choose how many itineraries must satisfy all configured leg and itinerary conditions:
+
+- **ANY** (default): At least one itinerary must match. Fails for an empty plan.
+- **ALL**: Every itinerary must match, and the plan must contain at least one itinerary.
+- **NONE**: No itinerary may match. Succeeds for an empty plan.
+
+Every mode retains diagnostics for all itineraries directly in the result's `itineraryResults()`.
 
 #### Composing ItineraryExpectations 
 ItineraryExpectations can be composed as like any PlanExpectation. See the [PlanExpectation Composition](asdf) section for more details.

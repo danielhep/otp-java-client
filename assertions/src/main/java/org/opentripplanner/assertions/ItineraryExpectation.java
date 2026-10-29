@@ -11,41 +11,14 @@ import org.opentripplanner.client.model.TripPlan;
 /** All conditions must hold for the same itinerary. An empty expectation matches any itinerary. */
 public final class ItineraryExpectation implements PlanExpectation {
   private final List<List<LegCriterion>> expectedLegs = new ArrayList<>();
+  private ItineraryMatching itineraryMatching = ItineraryMatching.ANY;
   private TransitLegMatching matchingMode = TransitLegMatching.UNORDERED_SUBSET;
   private Duration maxDuration;
 
-  public static PlanExpectation noItineraryMatching(ItineraryExpectation expectation) {
-    Objects.requireNonNull(expectation);
-    return plan -> {
-      var evaluated = expectation.evaluate(plan);
-      return new PlanMatchResult(
-          "No itinerary must match",
-          !evaluated.matches(),
-          plan,
-          null,
-          List.of(),
-          List.of(),
-          List.of(),
-          List.of(evaluated));
-    };
-  }
-
-  /** Requires at least one itinerary, with every itinerary satisfying the expectation. */
-  public static PlanExpectation allItinerariesMatching(ItineraryExpectation expectation) {
-    Objects.requireNonNull(expectation);
-    return plan -> {
-      var evaluated = expectation.evaluate(plan);
-      var itineraries = evaluated.itineraryResults();
-      return new PlanMatchResult(
-          "Every itinerary must match",
-          !itineraries.isEmpty() && itineraries.stream().allMatch(ItineraryMatchResult::isSuccess),
-          evaluated.plan(),
-          evaluated.matchingMode(),
-          evaluated.expectedLegs(),
-          evaluated.itineraryCriteria(),
-          itineraries,
-          evaluated.children());
-    };
+  /** Sets how many itineraries must match. Defaults to {@link ItineraryMatching#ANY}. */
+  public ItineraryExpectation withItineraryMatching(ItineraryMatching mode) {
+    itineraryMatching = Objects.requireNonNull(mode);
+    return this;
   }
 
   public ItineraryExpectation withTransitLegMatching(TransitLegMatching mode) {
@@ -69,7 +42,7 @@ public final class ItineraryExpectation implements PlanExpectation {
     return this;
   }
 
-  /** Evaluates every itinerary in the plan to check for matching results. */
+  /** Evaluates every itinerary and applies the configured itinerary matching rule. */
   @Override
   public PlanMatchResult evaluate(TripPlan plan) {
     Objects.requireNonNull(plan);
@@ -78,8 +51,8 @@ public final class ItineraryExpectation implements PlanExpectation {
             .mapToObj(i -> evaluateItinerary(i, plan.itineraries().get(i)))
             .toList();
     return new PlanMatchResult(
-        "At least one itinerary must match",
-        results.stream().anyMatch(ItineraryMatchResult::isSuccess),
+        itineraryMatching.description(),
+        itineraryMatching.matches(results),
         plan,
         matchingMode,
         expectedLegs.stream().map(l -> l.stream().map(LegCriterion::message).toList()).toList(),

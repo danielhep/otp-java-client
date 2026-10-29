@@ -15,8 +15,7 @@ import org.opentripplanner.client.model.TripPlan;
  *     least one itinerary matching, every child expectation matching, or an itinerary count limit
  * @param plan The evaluated trip plan, with snapshots of its itinerary and leg lists
  * @param matchingMode Strategy used to assign expected legs to actual transit legs; null when this
- *     result represents a plan-only check, composition, or negation rather than a direct itinerary
- *     evaluation
+ *     result represents a plan-only check or composition rather than a direct itinerary evaluation
  * @param expectedLegs Criterion descriptions grouped by expected leg, in declaration order. Every
  *     criterion in an inner list must hold on the same leg; matchingMode determines whether leg
  *     order matters. Empty when no legs are required or this result delegates to children.
@@ -25,8 +24,8 @@ import org.opentripplanner.client.model.TripPlan;
  * @param itineraryResults Results for every evaluated itinerary, including successes and failures,
  *     in plan order. Empty for plan-only checks and results that delegate evaluation to children.
  * @param children Results of nested expectations, in declaration order, retaining both successful
- *     and failed alternatives. Used by composition and negation; empty for direct itinerary and
- *     itinerary-count checks. Each child's matches flag describes that child's own expectation.
+ *     and failed alternatives. Used by composition; empty for direct itinerary and itinerary-count
+ *     checks. Each child's matches flag describes that child's own expectation.
  */
 public record PlanMatchResult(
     String description,
